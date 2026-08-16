@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-lab-01 = "lab_01:main"
+lab-01 = "lab_01.benchmark:main_generation"
 
 [tool.uv.sources]
 torch = { index = "pytorch" }
