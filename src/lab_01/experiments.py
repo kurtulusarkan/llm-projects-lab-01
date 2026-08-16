@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+import math
 import subprocess
 import sys
 from contextlib import redirect_stdout
@@ -62,6 +63,23 @@ def resolved_config_document(original: dict, overrides: dict[str, object], resol
     }
 
 
+def training_comparison_fields(training_examples: int, training: dict) -> dict:
+    """Derive optimizer-update counts for comparing batch-size experiments."""
+    batch_size = training["batch_size"]
+    accumulation_steps = training["gradient_accumulation_steps"]
+    epochs = training["epochs"]
+    examples_per_optimizer_step = batch_size * accumulation_steps
+    batches_per_epoch = math.ceil(training_examples / batch_size)
+    optimizer_steps_per_epoch = math.ceil(batches_per_epoch / accumulation_steps)
+    return {
+        "estimated_optimizer_steps_per_epoch": optimizer_steps_per_epoch,
+        "estimated_total_optimizer_steps": math.ceil(optimizer_steps_per_epoch * epochs),
+        "examples_per_optimizer_step": examples_per_optimizer_step,
+        "total_training_examples_processed": training_examples * epochs,
+        "tokens_per_optimizer_step": None,
+    }
+
+
 def unique_output_directory(root: str | Path, config: dict) -> Path:
     """Create a non-overwriting directory based on the deterministic identity."""
     root = Path(root)
@@ -107,6 +125,15 @@ def completion_summary(
             f"experiment_name: {config['name']}",
             f"model: {config['model']['name']}",
             f"training_examples: {config['dataset']['train_size']}",
+            f"estimated_optimizer_steps_per_epoch: "
+            f"{training_metrics['estimated_optimizer_steps_per_epoch']}",
+            f"estimated_total_optimizer_steps: "
+            f"{training_metrics['estimated_total_optimizer_steps']}",
+            f"global_step: {training_metrics.get('global_step')}",
+            f"actual_optimizer_steps: {training_metrics.get('actual_optimizer_steps')}",
+            f"examples_per_optimizer_step: {training_metrics['examples_per_optimizer_step']}",
+            f"total_training_examples_processed: {training_metrics['total_training_examples_processed']}",
+            f"tokens_per_optimizer_step: {training_metrics['tokens_per_optimizer_step']}",
             f"train_runtime_seconds: {training_metrics['train_runtime']:.2f}",
             f"accuracy: {evaluation_metrics['accuracy']:.4f}",
             f"invalid_json_count: {evaluation_metrics['invalid_json_count']}",
@@ -131,11 +158,14 @@ def run_experiment(config_path: str | Path, overrides: dict[str, object]) -> Pat
     metadata = {
         "timestamp": datetime.now(UTC).isoformat(),
         "git_commit": git_commit(),
+        "experiment_name": resolved["name"],
         "model_name": resolved["model"]["name"],
+        "dataset": resolved["dataset"]["name"],
         "dataset_size": resolved["dataset"]["train_size"],
         "lora": resolved["lora"],
         "training": resolved["training"],
         "output_directory": str(output_dir),
+        **training_comparison_fields(resolved["dataset"]["train_size"], resolved["training"]),
     }
     (output_dir / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
 
@@ -157,6 +187,26 @@ def run_experiment(config_path: str | Path, overrides: dict[str, object]) -> Pat
                 lora_dropout=resolved["lora"]["dropout"],
             )
 
+    actual_optimizer_steps = getattr(training_result, "global_step", None)
+    if actual_optimizer_steps is not None:
+        metadata["global_step"] = actual_optimizer_steps
+        metadata["actual_optimizer_steps"] = actual_optimizer_steps
+    tokens_seen = training_result.metrics.get("train_num_tokens_seen")
+    if tokens_seen is not None:
+        steps_for_token_rate = metadata.get(
+            "actual_optimizer_steps", metadata["estimated_total_optimizer_steps"]
+        )
+        metadata["tokens_per_optimizer_step"] = (
+            tokens_seen / steps_for_token_rate
+        )
+    train_runtime = training_result.metrics.get("train_runtime")
+    if train_runtime is not None:
+        metadata["train_runtime_seconds"] = train_runtime
+        metadata["examples_per_second"] = (
+            metadata["total_training_examples_processed"] / train_runtime
+        )
+    (output_dir / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
+
     metrics, elapsed = evaluate_sst2_adapter(
         model_name=resolved["model"]["name"],
         adapter_path=str(adapter_dir),
@@ -165,5 +215,12 @@ def run_experiment(config_path: str | Path, overrides: dict[str, object]) -> Pat
     evaluation = {**metrics, "total_evaluation_time_s": elapsed}
     (output_dir / "evaluation.json").write_text(json.dumps(evaluation, indent=2) + "\n")
     (output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
-    print(completion_summary(resolved, output_dir, training_result.metrics, metrics))
+    print(
+        completion_summary(
+            resolved,
+            output_dir,
+            {**training_result.metrics, **metadata},
+            metrics,
+        )
+    )
     return output_dir

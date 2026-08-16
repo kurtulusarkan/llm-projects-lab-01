@@ -109,10 +109,22 @@ and evaluation results to a unique directory below `outputs/experiments/`.
 Directory names include the experiment name, model, training-set size, and a
 stable configuration fingerprint; repeated identical runs receive a numeric
 suffix rather than overwriting an existing adapter.
+Metadata includes derived optimizer-step counts and effective batch size so
+batch-size experiments can be compared by updates rather than epochs alone.
 
 ```bash
 uv run python scripts/run_experiment.py experiments/sst2/baseline_500.yaml
 uv run python scripts/run_experiment.py experiments/sst2/baseline_500.yaml --train-size 5000
+```
+
+Compare completed experiments by held-out accuracy, update counts, and training
+throughput. The comparison is read-only: it includes completed, incomplete, and
+failed artifact directories without changing them. Optionally pass an experiment
+directory or name prefix, or write a CSV file.
+
+```bash
+uv run python scripts/compare_experiments.py
+uv run python scripts/compare_experiments.py sst2-qwen3-500 --csv outputs/comparison.csv
 ```
 
 Evaluate a saved adapter on the held-out test split without merging it:

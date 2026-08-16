@@ -8,6 +8,7 @@ from lab_01.experiments import (
     load_experiment_config,
     output_directory_name,
     resolved_config_document,
+    training_comparison_fields,
 )
 
 
@@ -61,7 +62,15 @@ class ExperimentConfigTest(unittest.TestCase):
         summary = completion_summary(
             self.config,
             Path("outputs/experiments/example"),
-            {"train_runtime": 77.89},
+            {
+                "train_runtime": 77.89,
+                "estimated_optimizer_steps_per_epoch": 21,
+                "estimated_total_optimizer_steps": 63,
+                "actual_optimizer_steps": 63,
+                "examples_per_optimizer_step": 8,
+                "total_training_examples_processed": 500,
+                "tokens_per_optimizer_step": None,
+            },
             {
                 "accuracy": 0.8945,
                 "invalid_json_count": 0,
@@ -70,5 +79,26 @@ class ExperimentConfigTest(unittest.TestCase):
         )
         self.assertIn("=== Experiment Complete ===", summary)
         self.assertIn("train_runtime_seconds: 77.89", summary)
+        self.assertIn("estimated_total_optimizer_steps: 63", summary)
         self.assertIn("accuracy: 0.8945", summary)
         self.assertIn("output_directory: outputs/experiments/example", summary)
+
+    def test_optimizer_step_fields_for_controlled_batch_comparisons(self):
+        batch_eight = training_comparison_fields(
+            5000,
+            {"batch_size": 8, "gradient_accumulation_steps": 1, "epochs": 1},
+        )
+        self.assertEqual(batch_eight["estimated_optimizer_steps_per_epoch"], 625)
+        self.assertEqual(batch_eight["estimated_total_optimizer_steps"], 625)
+        self.assertEqual(batch_eight["examples_per_optimizer_step"], 8)
+        self.assertEqual(batch_eight["total_training_examples_processed"], 5000)
+
+        batch_thirty_two = training_comparison_fields(
+            5000,
+            {"batch_size": 32, "gradient_accumulation_steps": 1, "epochs": 4},
+        )
+        self.assertEqual(batch_thirty_two["estimated_optimizer_steps_per_epoch"], 157)
+        self.assertEqual(batch_thirty_two["estimated_total_optimizer_steps"], 628)
+        self.assertEqual(batch_thirty_two["examples_per_optimizer_step"], 32)
+        self.assertEqual(batch_thirty_two["total_training_examples_processed"], 20000)
+        self.assertIsNone(batch_thirty_two["tokens_per_optimizer_step"])
