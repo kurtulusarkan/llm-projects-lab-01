@@ -1,6 +1,7 @@
 """Evaluation helpers for strict JSON SST-2 classification."""
 
 import json
+import time
 
 import torch
 from tqdm.auto import tqdm
@@ -8,6 +9,7 @@ from tqdm.auto import tqdm
 from lab_01.data import SST2_LABELS
 from lab_01.inference import generate_batch
 from lab_01.models import format_chat_prompt
+from lab_01.models import load_model
 
 
 def exact_match(predictions: list[str], references: list[str]) -> float:
@@ -114,3 +116,35 @@ def evaluate_sst2_zero_shot(
         if progress:
             progress.close()
     return summarize_sst2_predictions(predictions, labels)
+
+
+def evaluate_sst2_adapter(
+    model_name: str = "Qwen/Qwen3-0.6B",
+    adapter_path: str | None = None,
+    max_examples: int | None = None,
+    max_new_tokens: int = 32,
+    batch_size: int = 32,
+    show_progress: bool = True,
+) -> tuple[dict[str, int | float], float]:
+    """Load a model and optional adapter, then evaluate on held-out SST-2."""
+    from lab_01.data import load_sst2_experiment
+
+    dataset = load_sst2_experiment()["test"]
+    if max_examples is not None:
+        dataset = dataset.select(range(min(max_examples, len(dataset))))
+    model, tokenizer = load_model(model_name)
+    if adapter_path:
+        from peft import PeftModel
+
+        model = PeftModel.from_pretrained(model, adapter_path)
+    started = time.perf_counter()
+    metrics = evaluate_sst2_zero_shot(
+        model,
+        tokenizer,
+        model_name,
+        dataset,
+        max_new_tokens=max_new_tokens,
+        batch_size=batch_size,
+        show_progress=show_progress,
+    )
+    return metrics, time.perf_counter() - started

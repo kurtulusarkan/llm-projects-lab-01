@@ -79,8 +79,8 @@ uv run python scripts/evaluate_sst2_zero_shot.py --batch-size 1
 
 ## SST-2 LoRA fine-tuning
 
-Train LoRA adapters for Qwen3-0.6B on only the deterministic 500-example SST-2
-`train` split. The official SST-2 validation split remains held out. This uses
+Train LoRA adapters for Qwen3-0.6B on a deterministic SST-2 `train` subset
+(500 examples by default). The official SST-2 validation split remains held out. This uses
 BF16 CUDA with batch size 8 and no gradient accumulation; adapters and
 adapter-only checkpoints are written below `outputs/checkpoints/`. This is
 tuned for GPUs with enough VRAM (such as 16 GB). If memory is insufficient,
@@ -92,6 +92,27 @@ recorded in [EXPERIMENTS.md](EXPERIMENTS.md).
 
 ```bash
 uv run python scripts/train_sst2_lora.py
+```
+
+Change only the deterministic training-subset size for a controlled data-scale
+experiment:
+
+```bash
+uv run python scripts/train_sst2_lora.py --train-size 5000
+```
+
+## YAML experiments
+
+Run a reproducible train-and-evaluate experiment from YAML. The runner writes
+the original configuration, resolved overrides, metadata, training log, adapter,
+and evaluation results to a unique directory below `outputs/experiments/`.
+Directory names include the experiment name, model, training-set size, and a
+stable configuration fingerprint; repeated identical runs receive a numeric
+suffix rather than overwriting an existing adapter.
+
+```bash
+uv run python scripts/run_experiment.py experiments/sst2/baseline_500.yaml
+uv run python scripts/run_experiment.py experiments/sst2/baseline_500.yaml --train-size 5000
 ```
 
 Evaluate a saved adapter on the held-out test split without merging it:
@@ -108,7 +129,9 @@ uv run python scripts/evaluate_sst2_zero_shot.py \
 - `src/lab_01/benchmark.py`: generation and decode benchmark logic.
 - `src/lab_01/data.py`: SST-2 split creation, JSON targets, and dataset checks.
 - `src/lab_01/evaluate.py`: zero-shot SST-2 prompting, JSON parsing, and metrics.
-- `src/lab_01/train.py`: LoRA SFT training for the 500-example SST-2 experiment.
+- `src/lab_01/train.py`: LoRA SFT training for configurable SST-2 subsets.
+- `src/lab_01/experiments.py`: YAML experiment resolution and orchestration.
+- `experiments/`: versioned YAML experiment configurations.
 - `scripts/`: thin executable benchmark wrappers.
 - `tests/`: small, CPU-only unit tests.
 

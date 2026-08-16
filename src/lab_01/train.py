@@ -19,13 +19,13 @@ QWEN3_LORA_TARGET_MODULES = [
 ]
 
 
-def lora_config() -> LoraConfig:
+def lora_config(rank: int = 8, alpha: int = 16, dropout: float = 0.05) -> LoraConfig:
     """Return the conservative LoRA configuration for Qwen3-0.6B."""
     return LoraConfig(
         task_type=TaskType.CAUSAL_LM,
-        r=8,
-        lora_alpha=16,
-        lora_dropout=0.05,
+        r=rank,
+        lora_alpha=alpha,
+        lora_dropout=dropout,
         target_modules=QWEN3_LORA_TARGET_MODULES,
         bias="none",
     )
@@ -44,9 +44,18 @@ def train_sst2_lora(
     model_name: str = "Qwen/Qwen3-0.6B",
     output_dir: str = "outputs/checkpoints/qwen3-0.6b-sst2-lora",
     seed: int = 42,
-) -> None:
-    """Fine-tune Qwen3-0.6B adapters on exactly the 500 SST-2 train examples."""
-    dataset = load_sst2_experiment(seed=seed)["train"]
+    train_size: int = 500,
+    epochs: int = 3,
+    learning_rate: float = 2e-4,
+    batch_size: int = 8,
+    gradient_accumulation_steps: int = 1,
+    gradient_checkpointing: bool = False,
+    lora_rank: int = 8,
+    lora_alpha: int = 16,
+    lora_dropout: float = 0.05,
+):
+    """Fine-tune Qwen3-0.6B adapters on a deterministic SST-2 train subset."""
+    dataset = load_sst2_experiment(train_size=train_size, seed=seed)["train"]
     model, tokenizer = load_model(model_name)
     model.config.use_cache = False
 
@@ -56,11 +65,11 @@ def train_sst2_lora(
     )
     args = SFTConfig(
         output_dir=output_dir,
-        num_train_epochs=3,
-        learning_rate=2e-4,
-        per_device_train_batch_size=8,
-        gradient_accumulation_steps=1,
-        gradient_checkpointing=False,
+        num_train_epochs=epochs,
+        learning_rate=learning_rate,
+        per_device_train_batch_size=batch_size,
+        gradient_accumulation_steps=gradient_accumulation_steps,
+        gradient_checkpointing=gradient_checkpointing,
         bf16=True,
         max_length=512,
         dataset_text_field="text",
@@ -78,7 +87,7 @@ def train_sst2_lora(
         args=args,
         train_dataset=train_dataset,
         processing_class=tokenizer,
-        peft_config=lora_config(),
+        peft_config=lora_config(lora_rank, lora_alpha, lora_dropout),
     )
     total_parameters = sum(parameter.numel() for parameter in trainer.model.parameters())
     trainable_parameters = sum(
@@ -99,5 +108,6 @@ def train_sst2_lora(
     print(f"learning_rate: {args.learning_rate}")
     print(f"max_sequence_length: {args.max_length}")
     print(f"output_directory: {output_dir}")
-    trainer.train()
+    training_result = trainer.train()
     trainer.save_model(output_dir)
+    return training_result
