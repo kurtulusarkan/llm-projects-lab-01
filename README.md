@@ -117,6 +117,21 @@ uv run python scripts/run_experiment.py experiments/sst2/baseline_500.yaml
 uv run python scripts/run_experiment.py experiments/sst2/baseline_500.yaml --train-size 5000
 ```
 
+The largest deterministic training subset is 67,149 examples: the remaining
+200 examples from GLUE's official training split are reserved for the lab
+validation subset. The completed one-epoch full-data run used batch size 32:
+
+```bash
+uv run python scripts/run_experiment.py \
+  experiments/sst2/baseline_500.yaml \
+  --train-size 67149 \
+  --epochs 1 \
+  --batch-size 32
+```
+
+Measured results and general-capability regression observations are recorded
+in [EXPERIMENTS.md](EXPERIMENTS.md).
+
 Compare completed experiments by held-out accuracy, update counts, and training
 throughput. The comparison is read-only: it includes completed, incomplete, and
 failed artifact directories without changing them. Optionally pass an experiment
@@ -134,6 +149,66 @@ uv run python scripts/evaluate_sst2_zero_shot.py \
   --adapter outputs/checkpoints/qwen3-0.6b-sst2-lora
 ```
 
+## General capability regression evaluation
+
+The frozen `evals/general/v1/dataset.jsonl` suite contains 115 deterministic,
+evaluation-only examples. It is designed for paired base-versus-LoRA regression
+testing, not model ranking. Never use these examples for training or adapter
+selection.
+
+Evaluate the base model:
+
+```bash
+uv run python scripts/evaluate_general.py \
+  --model Qwen/Qwen3-0.6B \
+  --dataset evals/general/v1/dataset.jsonl
+```
+
+Evaluate the same model with an adapter:
+
+```bash
+uv run python scripts/evaluate_general.py \
+  --model Qwen/Qwen3-0.6B \
+  --adapter outputs/experiments/example/adapter \
+  --dataset evals/general/v1/dataset.jsonl
+```
+
+Use `--limit` for a smoke test or `--category` for one capability area:
+
+```bash
+uv run python scripts/evaluate_general.py --category reasoning --limit 10
+```
+
+Each run creates a non-overwriting directory under
+`outputs/evals/general/v1/` containing `metadata.json`, `predictions.jsonl`,
+and `metrics.json`. Generation is greedy and records the dataset checksum,
+system prompt, chat template, and generation settings. Code responses are
+checked with narrow per-task validation in an isolated, resource-limited
+Python subprocess; generated code is never matched against canonical source.
+
+Inspect saved results without rescoring or generating new outputs:
+
+```bash
+uv run python scripts/inspect_general_eval.py \
+  --eval-dir outputs/evals/general/v1/qwen3-0.6b-base \
+  --failed-only \
+  --category reasoning
+```
+
+Compare matching saved IDs from a base and adapter run:
+
+```bash
+uv run python scripts/inspect_general_eval.py \
+  --eval-dir outputs/evals/general/v1/qwen3-0.6b-base \
+  --compare outputs/evals/general/v1/qwen3-0.6b-sst2-lora \
+  --failed-only
+```
+
+The inspector displays per-item failure reasons only when an artifact already
+stores one. Existing artifacts record aggregate invalid-output counts but do
+not provide per-item invalid reasons, so the tool reports `not recorded`
+rather than reinterpreting a model response.
+
 ## Layout
 
 - `src/lab_01/models.py`: model loading and model-family chat prompting.
@@ -141,9 +216,12 @@ uv run python scripts/evaluate_sst2_zero_shot.py \
 - `src/lab_01/benchmark.py`: generation and decode benchmark logic.
 - `src/lab_01/data.py`: SST-2 split creation, JSON targets, and dataset checks.
 - `src/lab_01/evaluate.py`: zero-shot SST-2 prompting, JSON parsing, and metrics.
+- `src/lab_01/general_eval.py`: frozen general-suite validation, scoring, safe code checks, and artifacts.
+- `src/lab_01/general_eval_inspection.py`: read-only saved-artifact inspection and comparison.
 - `src/lab_01/train.py`: LoRA SFT training for configurable SST-2 subsets.
 - `src/lab_01/experiments.py`: YAML experiment resolution and orchestration.
 - `experiments/`: versioned YAML experiment configurations.
+- `evals/`: draft and frozen general-capability regression datasets.
 - `scripts/`: thin executable benchmark wrappers.
 - `tests/`: small, CPU-only unit tests.
 

@@ -76,10 +76,45 @@ gradient_checkpointing=False
 The GPU has sufficient headroom for this model. The prior bottleneck was
 inefficient batching and gradient checkpointing, not VRAM capacity.
 
+## Full-data SST-2 scale experiment
+
+A completed full-data LoRA run used the maximum deterministic training subset:
+
+- Base model: `Qwen/Qwen3-0.6B`
+- Training examples: 67,149
+- Reserved lab validation examples: 200 from the official SST-2 training split
+- Seed: 42
+- Epochs: 1
+- Batch size: 32
+- Gradient accumulation: 1
+- Gradient checkpointing: disabled
+- LoRA: rank 8, alpha 16, dropout 0.05, with the standard Qwen target modules
+- Learning rate: 2e-4
+- Optimizer updates: 2,099
+
+Measured training runtime was 941.1 seconds (71.35 examples/second). Held-out
+official SST-2 validation performance was 93.81% accuracy, with 0 invalid JSON
+outputs out of 872 examples.
+
+## General capability regression check
+
+The frozen `evals/general/v1` suite was run as a paired base-versus-adapter
+check for the completed 67,149-example adapter above. Exact deterministic
+accuracy increased from 15/115 (13.0%) for the base model to 24/115 (20.9%)
+for the adapter. Most exact gains were short-answer and output-format
+compliance improvements.
+
+A manual review of the paired stored outputs found likely regressions in
+reasoning and language behavior despite the exact-score increase. This is an
+important qualitative regression signal, not a new reproducible semantic
+metric; retain the frozen exact evaluation and inspect paired outputs before
+claiming a general-capability improvement.
+
 ## Next experiments
 
-1. Scale the training data from 500 to 5,000 to the full 67,349 examples;
-   measure training time and held-out accuracy.
+1. Compare the completed 67,149-example one-epoch run with controlled
+   full-data variants; measure training time, held-out accuracy, and paired
+   general-capability regression behavior.
 2. Compare LoRA capacity at ranks 4, 8, and 16.
 3. Compare Qwen3-0.6B, SmolLM2-360M, and LiquidAI LFM2.5-1.2B.
 
