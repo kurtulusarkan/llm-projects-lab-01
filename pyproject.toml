@@ -9,12 +9,15 @@ authors = [
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "accelerate>=1.14.0",
+    "bitsandbytes>=0.45.0",
     "datasets>=5.0.1,<6",
+    "peft>=0.15.0",
     "safetensors>=0.8.0",
     "sentencepiece>=0.2.2",
     "torch>=2.11.0",
     "torchvision>=0.26.0",
     "transformers>=4.57.6",
+    "trl>=0.15.0",
 ]
 
 [project.scripts]

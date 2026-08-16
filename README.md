@@ -2,8 +2,7 @@
 
 This repository is a compact workspace for comparing and fine-tuning small
 language models, starting with Qwen, SmolLM, and Liquid AI models. It uses
-`uv`, PyTorch CUDA, and Hugging Face Transformers. Fine-tuning support will
-later add PEFT/TRL without changing the inference workflow.
+`uv`, PyTorch CUDA, Hugging Face Transformers, PEFT, and TRL.
 
 ## Setup
 
@@ -46,14 +45,70 @@ benefit in this lab.
 uv run python scripts/benchmark_decode.py --model Qwen/Qwen3-0.6B --tokens 256 --runs 5
 ```
 
+## SST-2 experiment
+
+The SST-2 experiment takes 500 deterministic examples for training and 200
+for validation from GLUE's official training split (seed `42`). The official
+GLUE SST-2 validation split remains untouched and is used as the final held-out
+`test` split. Labels are JSON completions only: `{"sentiment":"positive"}` or
+`{"sentiment":"negative"}`.
+
+```bash
+uv run python scripts/prepare_sst2.py
+uv run python scripts/evaluate_sst2_zero_shot.py --model Qwen/Qwen3-0.6B
+```
+
+To smoke-test the zero-shot evaluator on part of the held-out set:
+
+```bash
+uv run python scripts/evaluate_sst2_zero_shot.py --max-examples 20
+```
+
+Evaluation uses batched GPU generation by default (`--batch-size 32`) while
+preserving the same prompt, JSON parsing, and metrics as single-example
+generation. It displays tqdm progress with examples and batches completed, then
+reports accuracy, invalid JSON and label counts, total examples, total
+evaluation time, and examples per second.
+
+Use batch size 1 for a direct single-example throughput comparison, or reduce
+the batch size if evaluation memory is insufficient:
+
+```bash
+uv run python scripts/evaluate_sst2_zero_shot.py --batch-size 1
+```
+
+## SST-2 LoRA fine-tuning
+
+Train LoRA adapters for Qwen3-0.6B on only the deterministic 500-example SST-2
+`train` split. The official SST-2 validation split remains held out. This uses
+BF16 CUDA with batch size 8 and no gradient accumulation; adapters and
+adapter-only checkpoints are written below `outputs/checkpoints/`. This is
+tuned for GPUs with enough VRAM (such as 16 GB). If memory is insufficient,
+reduce the batch size and increase gradient accumulation to keep the effective
+batch size at 8.
+
+Measured baselines, optimization results, and the preferred configuration are
+recorded in [EXPERIMENTS.md](EXPERIMENTS.md).
+
+```bash
+uv run python scripts/train_sst2_lora.py
+```
+
+Evaluate a saved adapter on the held-out test split without merging it:
+
+```bash
+uv run python scripts/evaluate_sst2_zero_shot.py \
+  --adapter outputs/checkpoints/qwen3-0.6b-sst2-lora
+```
+
 ## Layout
 
 - `src/lab_01/models.py`: model loading and model-family chat prompting.
-- `src/lab_01/inference.py`: one-pass generation and metrics.
+- `src/lab_01/inference.py`: single-prompt benchmark and batched generation helpers.
 - `src/lab_01/benchmark.py`: generation and decode benchmark logic.
-- `src/lab_01/data.py`: Hugging Face dataset loading and chat-schema checks.
-- `src/lab_01/evaluate.py`: simple repeatable evaluation metrics.
-- `src/lab_01/train.py`: placeholders for future SFT, LoRA, and QLoRA work.
+- `src/lab_01/data.py`: SST-2 split creation, JSON targets, and dataset checks.
+- `src/lab_01/evaluate.py`: zero-shot SST-2 prompting, JSON parsing, and metrics.
+- `src/lab_01/train.py`: LoRA SFT training for the 500-example SST-2 experiment.
 - `scripts/`: thin executable benchmark wrappers.
 - `tests/`: small, CPU-only unit tests.
 
